@@ -45,12 +45,12 @@
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
-
-		/* global autoconfigured region for contiguous allocations */
+		/* global autoconfigured region for contiguous allocations
+		 * e.g. for graphic usage */
 		linux,cma {
 			compatible = "shared-dma-pool";
 			reusable;
-			size = <0x0 0x4000000>;		/* 64M */
+			size = <0x0 0x8000000>;		/* 128M */
 			alignment = <0x0 0x2000>;	/* 4k page alignment */
 			linux,cma-default;
 		};
