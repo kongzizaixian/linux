@@ -13,6 +13,7 @@
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/clkdev.h>
+#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/of.h>
@@ -37,7 +38,7 @@ static struct hisi_fixed_rate_clock hi6220_fixed_rate_clks[] __initdata = {
 	{ HI6220_PLL1_DDR,	"ddrpll1",	NULL, CLK_IS_ROOT, 1066000000,},
 	{ HI6220_PLL_SYS,	"syspll",	NULL, CLK_IS_ROOT, 1190494208,},
 	{ HI6220_PLL_SYS_MEDIA,	"media_syspll",	NULL, CLK_IS_ROOT, 1190494208,},
-	{ HI6220_DDR_SRC,	"ddr_sel_src",  NULL, CLK_IS_ROOT, 1190494208,},
+	{ HI6220_DDR_SRC,	"ddr_sel_src",  NULL, CLK_IS_ROOT, 1200000000,},
 	{ HI6220_PLL_MEDIA,	"media_pll",    NULL, CLK_IS_ROOT, 1440000000,},
 	{ HI6220_PLL_DDR,	"ddrpll0",      NULL, CLK_IS_ROOT, 1600000000,},
 };
@@ -76,41 +77,52 @@ static struct hisi_gate_clock hi6220_separated_gate_clks_ao[] __initdata = {
 #define SOC_PERI_SCTRL_BASE_ADDR	0xF7030000 /* peri ctrl base addr */
 #define SC_PERIPH_CTRL14		0x02C
 #define SC_PERIPH_STAT1			0x094
+#define SOC_PMCTRL_BASE_ADDR		0xF7032000 /* pm ctrl base addr*/
+#define SC_PM_DDRPLL_STAT		0x18
+#define SC_PM_SYSPLL_STAT		0x28
+#define SC_PM_MEDPLL_STAT		0x38
+
 
 static struct hisi_clock_data *clk_data_ao;
 
 static void __init hi6220_clk_ao_init(struct device_node *np)
 {
-	void __iomem *peri_base;
-	unsigned int syspll_freq;
+	void __iomem *peri_base, *pm_base;
+	unsigned int freq_u, freq_l, freq, pll_stat;
 	int i;
 
 	clk_data_ao = hisi_clk_init(np, HI6220_AO_NR_CLKS);
 	if (!clk_data_ao)
 		return;
 
-	/* SYSPLL is set by bootloader. Read it */
 	peri_base = ioremap(SOC_PERI_SCTRL_BASE_ADDR, 0x1000);
+	pm_base = ioremap(SOC_PMCTRL_BASE_ADDR, 0x1000);
+	/* SYSPLL is set by bootloader. Read it */
+	/* check syspll enablement status */
+        pll_stat = readl(pm_base + SC_PM_SYSPLL_STAT);
+        pr_info("SYSPLL: syspll PM status: 0x%x\n", pll_stat);
 	/* 0x2101 means to calculate clk_sys_pll */
-	writel(0x2101, peri_base + SC_PERIPH_CTRL14);
+	writew(0x2101, peri_base + SC_PERIPH_CTRL14);
+	mdelay(1);
 	/* read back the calculated value */
-	syspll_freq = readl(peri_base + SC_PERIPH_STAT1);
-	pr_info("SYSPLL: syspll_freq is read: 0x%x, %d\n", syspll_freq, \
-		syspll_freq);
-	if (syspll_freq == 0x00020000 || syspll_freq == 0)
-		syspll_freq = 1200000000;
-	pr_info("SYSPLL: set syspll medpll ddrsrc: %d\n", syspll_freq);
+	freq_l = readw(peri_base + SC_PERIPH_STAT1);
+	freq_u = readw(peri_base + SC_PERIPH_STAT1 + 2);
+	mdelay(1);
+	freq = freq_u << 16 | freq_l;
+	pr_info("SYSPLL: syspll is read: l: 0x%04X, u: 0x%04X\n", freq_l, freq_u);
+	pr_info("SYSPLL: syspll is read: 0x%X, %d\n", freq, freq);
+	if (freq == 0x00020000 || freq == 0) {
+		pr_info("SYSPLL: ERROR: syspll read returns misterious value.\n");
+		freq = 1200000000;
+	}
+	pr_info("SYSPLL: set syspll medpll: %d\n", freq);
 
 	for (i = 0; i < ARRAY_SIZE(hi6220_fixed_rate_clks); i++) {
-		switch (hi6220_fixed_rate_clks[i].id) {
-		case HI6220_PLL_SYS:
-		case HI6220_PLL_SYS_MEDIA:
-		case HI6220_DDR_SRC:
-			hi6220_fixed_rate_clks[i].fixed_rate = syspll_freq;
-			pr_info("SYSPLL: modified fix_rate[%d], id=%d, f=%d\n", \
-				i, hi6220_fixed_rate_clks[i].id, syspll_freq);
-		default:
-			break;
+		if (hi6220_fixed_rate_clks[i].id == HI6220_PLL_SYS ||
+			hi6220_fixed_rate_clks[i].id == HI6220_PLL_SYS_MEDIA) {
+			hi6220_fixed_rate_clks[i].fixed_rate = freq;
+			pr_info("SYSPLL: modified fix_rate[%d], id=%d, f=%d\n",
+				i, hi6220_fixed_rate_clks[i].id, freq);
 		}
 	}
 
