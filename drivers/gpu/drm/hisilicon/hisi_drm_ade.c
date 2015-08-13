@@ -342,6 +342,17 @@ static bool hisi_drm_crtc_mode_fixup(struct drm_crtc *crtc,
 	pr_info("%s: pixel clock: req %dkHz -> actual: %dkHz\n",
 		__func__, mode->clock, adj_mode->clock);
 
+	/* adjust 720p timings to let output more stable */
+	if (mode->hdisplay == 1280 && mode->vdisplay == 720 &&
+			mode->vrefresh == 60)
+	{
+		adj_mode->hsync_start = 1500;
+		adj_mode->hsync_end = 1540;
+		adj_mode->vsync_start = 740;
+		adj_mode->vsync_end = 745;
+	}
+
+
 	DRM_DEBUG_DRIVER("mode_fixup  exit successfully.\n");
 	return true;
 }
@@ -354,14 +365,14 @@ static void hisi_drm_crtc_mode_prepare(struct drm_crtc *crtc)
 
 static int hisi_drm_crtc_mode_set(struct drm_crtc *crtc,
 				   struct drm_display_mode *mode,
-				   struct drm_display_mode *adjusted_mode,
+				   struct drm_display_mode *adj_mode,
 				   int x, int y,
 				   struct drm_framebuffer *old_fb)
 {
 	struct hisi_drm_ade_crtc *crtc_ade = to_hisi_crtc(crtc);
 
 	DRM_DEBUG_DRIVER("mode_set  enter successfully.\n");
-	crtc_ade->dmode = mode;
+	crtc_ade->dmode = adj_mode;
 	DRM_DEBUG_DRIVER("mode_set  exit successfully.\n");
 	return 0;
 }
